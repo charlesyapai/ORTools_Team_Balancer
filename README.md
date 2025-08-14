@@ -20,13 +20,13 @@ It reads a signups CSV and a YAML config, then assigns players to teams so that:
    ```bash
    conda create -n team_balancer python=3.10 -y
    conda activate team_balancer
-   pip install --upgrade pip
-   pip install pandas numpy pyyaml matplotlib ortools
+   <!-- pip install --upgrade pip -->
+   conda install pandas numpy pyyaml matplotlib ortools
    ```
 3. **Run it**:
 
    ```bash
-   python main.py --signups signups.csv --config config.yaml
+   python main.py
    ```
 
 The solver creates an output folder (e.g., `./outputs/<run_name>/`) containing all artifacts for the run.
@@ -110,63 +110,153 @@ Inside `./outputs/<run_name>/`:
 
 ---
 
-## How the solver works (math)
+## How the solver works (math, explained)
 
-The solver uses **OR-Tools CP-SAT** (mixed integer model).
+This solver uses **[OR-Tools CP-SAT](https://developers.google.com/optimization/cp/cp_solver)**, which is a constraint programming solver capable of handling binary and integer optimization problems.
 
-**Decision variables**
+We represent the assignment of players to teams with **binary decision variables**:
 
-* $x_{p,t} \in \{0,1\}$: player $p$ assigned to team $t$.
+* **Assignment variable:**
+  $x_{p,t} = 1$ if player **p** is assigned to team **t**,
+  $x_{p,t} = 0$ otherwise.
 
-**Role coverage constraints**
+---
 
-* For each team $t$ and each role $r$:
-  $\sum_{p:\,\text{role}(p)=r} x_{p,t} = 1$
+### 1. Constraints
 
-**One team per player**
+#### **a) One player per role per team**
 
-* For each player $p$:
-  $\sum_{t} x_{p,t} = 1$
-
-**Presets (optional)**
-
-* If player $p$ is preset to team $\hat{t}$:
-  $x_{p,\hat{t}} = 1,\; x_{p,t\neq\hat{t}} = 0$
-
-**Weighted team score**
-Each player has skill $s_p$ and role weight $w_{\text{role}(p)}$.
-Team $t$ score: $S_t = \sum_{p} (w_{\text{role}(p)} s_p) \, x_{p,t}$
-
-**Balance target**
-Let $\bar{S} = \frac{1}{T} \sum_t S_t$ be the average team score.
-We minimize the **sum of absolute deviations**: $\sum_t |S_t - \bar{S}|$.
-This is linearized with auxiliary variables $d_t \ge |S_t - \bar{S}|$.
-
-**Avoid-pair penalty**
-For every directed avoid pair $(a \to b)$ and team $t$, introduce $y_{a,b,t}\in\{0,1\}$ with:
-
-* $y_{a,b,t} \le x_{a,t}$, $y_{a,b,t} \le x_{b,t}$,
-* $y_{a,b,t} \ge x_{a,t} + x_{b,t} - 1$.
-  Penalty adds $\lambda_{\text{conflict}} \sum_{a\to b,t} y_{a,b,t}$.
-
-**Captain policy** (soft or hard)
-Let $C_t = \sum_p \text{captain}_p \, x_{p,t}$.
-
-* `at_least_one` hard: $C_t \ge 1$. Soft: penalize $m_t = \max(0, 1 - C_t)$.
-* `separate` hard: $C_t \le 1$. Soft: penalize $k_t = \max(0, C_t - 1)$.
-
-**Objective**
+For each **team** $t$ and **role** $r$:
 
 $$
-\min \quad
-\alpha \sum_t d_t
-\;+\;
-\beta \sum_{a\to b,t} y_{a,b,t}
-\;+\;
-\gamma \sum_t \text{captain\_violation}_t
+\sum_{\text{player } p \text{ with role } r} x_{p,t} = 1
 $$
 
-where $\alpha=$ `balance_weight`, $\beta=$ `conflict_weight`, $\gamma=$ `captain_weight`.
+This means each team must have **exactly one** player for every role.
+
+---
+
+#### **b) Each player on exactly one team**
+
+For each player $p$:
+
+$$
+\sum_{\text{all teams } t} x_{p,t} = 1
+$$
+
+No player can be in multiple teams or left unassigned.
+
+---
+
+#### **c) Preset placements (optional)**
+
+If the config forces player $p$ into a fixed team $t^{\ast}$ (“team star” means a specific chosen team):
+
+$$
+x_{p,\,t^{\ast}} = 1 \quad\text{and}\quad x_{p,\,t} = 0 \ \forall\ t \neq t^{\ast}
+$$
+
+
+---
+
+### 2. Weighted team scores
+
+Each player has:
+
+* **Skill rating**: $s_p$
+* **Role weight** (from YAML config): $w_{\text{role}(p)}$
+
+The **weighted team score** is:
+
+$$
+S_t = \sum_{\text{all players } p} \big( w_{\text{role}(p)} \cdot s_p \big) \cdot x_{p,t}
+$$
+
+---
+
+### 3. Balancing the teams
+
+We compute the **target score**:
+
+$$
+\bar{S} = \frac{1}{T} \sum_{t=1}^T S_t
+$$
+
+We try to make every team’s score **as close as possible** to $\bar{S}$.
+This is done by minimizing the **sum of absolute deviations**:
+
+$$
+\sum_{t=1}^T \left| S_t - \bar{S} \right|
+$$
+
+In CP-SAT, absolute values are handled with **extra variables** $d_t$ such that:
+
+$$
+d_t \ge S_t - \bar{S}, \quad d_t \ge \bar{S} - S_t
+$$
+
+---
+
+### 4. Avoid-pair penalties
+
+Some players don’t want to be on the same team.
+For every “avoid” request $a \to b$ and team $t$, we define:
+
+* $y_{a,b,t} = 1$ if both **a** and **b** are in team $t$, else $0$.
+
+This is linked to $x$ by:
+
+$$
+y_{a,b,t} \le x_{a,t}, \quad
+y_{a,b,t} \le x_{b,t}, \quad
+y_{a,b,t} \ge x_{a,t} + x_{b,t} - 1
+$$
+
+We penalize these cases by adding:
+
+$$
+\lambda_{\text{conflict}} \sum_{a\to b,t} y_{a,b,t}
+$$
+
+---
+
+### 5. Captain policy
+
+Let:
+
+$$
+C_t = \sum_{\text{all players } p} \text{captain}_p \cdot x_{p,t}
+$$
+
+Depending on config:
+
+* **At least one captain per team**: $C_t \ge 1$ (hard) or penalize $\max(0, 1 - C_t)$ (soft).
+* **Separate captains**: $C_t \le 1$ (hard) or penalize $\max(0, C_t - 1)$ (soft).
+
+---
+
+### 6. Objective function
+
+We combine all goals into **one number to minimize**:
+
+$$
+\text{Objective} =
+\alpha \cdot \sum_{t} d_t
+\;+\;
+\beta \cdot \sum_{a\to b,t} y_{a,b,t}
+\;+\;
+\gamma \cdot \sum_{t} \text{CaptainViolation}_t
+$$
+
+Where:
+
+* $\alpha$ = `balance_weight` from YAML
+* $\beta$ = `conflict_weight` from YAML
+* $\gamma$ = `captain_weight` from YAML
+
+By tuning these weights, you control how much the solver prioritizes **balance**, **avoiding conflicts**, and **captain rules**.
+
+
 
 ---
 
@@ -273,4 +363,9 @@ captain_hard: true
 
 * Every run saves `used_config.yaml` with absolute path to the signups file and all effective parameters.
 * Keep the same CSV, YAML, and `random_seed` to reproduce the same result (CP-SAT may still find equivalent optima with different assignments; if you need strict determinism, set `num_search_workers: 1` and keep the seed fixed).
+
+
+
+
+
 
