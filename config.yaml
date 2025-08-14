@@ -1,0 +1,33 @@
+run_name: "checking"
+output_root: "./outputs"
+
+# If omitted/null, `num_teams` is inferred from having equal counts per role.
+num_teams: 8
+
+# Roles used and their balance weights (multipliers)
+roles: [1, 2, 3, 4, 5]
+role_weights:
+  1: 1.0
+  2: 1.0
+  3: 1.0
+  4: 1.0
+  5: 1.0
+
+# Captain handling
+captain_policy: "at_least_one"   # "none" | "at_least_one" | "separate"
+captain_hard: false              # true=hard constraint (feasible only if counts allow)
+captain_weight: 5.0              # penalty per team violating the policy when not hard
+
+# Penalty weights
+balance_weight: 1.0              # balances team MMRs via sum of absolute deviations
+conflict_weight: 1.0             # penalizes placing avoid-pairs on the same team
+
+# Preset placements: Player -> team index (1-based)
+presets:
+  "Carl": 3
+  "Aaron": 1
+  "Bella": 2
+
+# Misc
+random_seed: 42
+plot_dpi: 140
