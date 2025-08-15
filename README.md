@@ -1,7 +1,6 @@
 # Team Balancer — README
 
-A role-constrained, captain-aware, conflict-avoidant team assignment solver.
-It reads a signups CSV and a YAML config, then assigns players to teams so that:
+A tool that utilizes ORTools, to assigns players to teams so that:
 
 * Each team has exactly **one player per role** (e.g., roles 1–5).
 * Teams are **balanced by weighted MMR** (optional per-role weights).
@@ -10,107 +9,14 @@ It reads a signups CSV and a YAML config, then assigns players to teams so that:
 * **Presets** allow pinning specific players to specific teams.
 * Produces a Markdown roster, a CSV with team labels, and PNG reports.
 
----
 
-## Quick start
 
-1. **Download the code** (place `main.py` and your YAML/CSV in a folder).
-2. **Create a conda environment** (ORTools can be picky about old deps):
 
-   ```bash
-   conda create -n team_balancer python=3.10 -y
-   conda activate team_balancer
-   <!-- pip install --upgrade pip -->
-   conda install pandas numpy pyyaml matplotlib ortools
-   ```
-3. **Run it**:
 
-   ```bash
-   python main.py
-   ```
-
-The solver creates an output folder (e.g., `./outputs/<run_name>/`) containing all artifacts for the run.
 
 ---
 
-## Input formats
-
-### Signups CSV (columns must match exactly)
-
-* **Name** — string (unique)
-* **Skill** — numeric (recommended range 5000–9000)
-* **Position** — integer role ID (e.g., 1–5)
-* **Captain** — 0/1 flag
-* **Avoid** — string with a **Name** value to avoid (or empty/NaN)
-
-Example:
-
-```csv
-Name,Skill,Position,Captain,Avoid
-Alice,7800,1,1,Bob
-Bob,7600,2,0,Alice
-Carol,8200,3,1,
-...
-```
-
-### Config YAML (fully configurable; example)
-
-```yaml
-run_name: "draft_aug"
-output_root: "./outputs"
-
-num_teams: 8            # If null, inferred from data: must have equal count per role
-roles: [1, 2, 3, 4, 5]
-
-# Per-role multipliers for balancing weighted team MMR
-role_weights:
-  1: 1.0
-  2: 1.0
-  3: 1.0
-  4: 1.0
-  5: 1.0
-
-# Captain handling ("none" | "at_least_one" | "separate")
-captain_policy: "at_least_one"
-captain_hard: false      # true=enforce as hard constraint (only if feasible)
-captain_weight: 5.0      # penalty when not hard
-
-# Objective weights
-balance_weight: 1.0      # team MMR balance (sum of abs deviations)
-conflict_weight: 1.0     # penalize avoid-pairs placed together
-
-# Pin players to teams (1-based team index)
-presets:
-  # "Player A": 1
-  # "Player B": 3
-
-random_seed: 42
-plot_dpi: 140
-```
-
-> **Feasibility requirements:**
->
-> * For each role in `roles`, the CSV must contain **exactly `num_teams` players** with that role.
-> * Total players must equal `num_teams * len(roles)`.
-> * Names must be unique.
-> * If `captain_hard: true` is infeasible (e.g., fewer captains than teams for “at\_least\_one”), the solver automatically **softens** it and prints a warning.
-
----
-
-## What it produces
-
-Inside `./outputs/<run_name>/`:
-
-1. `used_config.yaml` — the exact config used for this run (for reproducibility).
-2. `teams.md` — Markdown roster per team (roles, names, MMR, captain marks + averages).
-3. `assignments.csv` — original CSV plus a `Team` column.
-4. `mmr_bars_per_team.png` — bars of per-player MMR by role for each team.
-5. `avg_role_mmr_by_team.png` — heatmap of role MMR per team.
-6. `team_reports.png` — compact boards with each team’s roster, overall avg, **Core(1–3)** avg, and **Support(4–5)** avg.
-
----
-
-## How the solver works (math, explained)
+## How the solver works
 
 This solver uses **[OR-Tools CP-SAT](https://developers.google.com/optimization/cp/cp_solver)**, which is a constraint programming solver capable of handling binary and integer optimization problems.
 
@@ -257,6 +163,106 @@ Where:
 By tuning these weights, you control how much the solver prioritizes **balance**, **avoiding conflicts**, and **captain rules**.
 
 
+
+
+
+---
+
+## Quick start
+
+1. **Download the code** (place `main.py` and your YAML/CSV in a folder).
+2. **Create a conda environment** (ORTools can be picky about old deps):
+
+   ```bash
+   conda create -n team_balancer python=3.10 -y
+   conda activate team_balancer
+   <!-- pip install --upgrade pip -->
+   conda install pandas numpy pyyaml matplotlib ortools
+   ```
+3. **Run it**:
+
+   ```bash
+   python main.py
+   ```
+
+The solver creates an output folder (e.g., `./outputs/<run_name>/`) containing all artifacts for the run.
+
+---
+
+## Input formats
+
+### Signups CSV (columns must match exactly)
+
+* **Name** — string (unique)
+* **Skill** — numeric (recommended range 5000–9000)
+* **Position** — integer role ID (e.g., 1–5)
+* **Captain** — 0/1 flag
+* **Avoid** — string with a **Name** value to avoid (or empty/NaN)
+
+Example:
+
+```csv
+Name,Skill,Position,Captain,Avoid
+Alice,7800,1,1,Bob
+Bob,7600,2,0,Alice
+Carol,8200,3,1,
+...
+```
+
+### Config YAML (fully configurable; example)
+
+```yaml
+run_name: "draft_aug"
+output_root: "./outputs"
+
+num_teams: 8            # If null, inferred from data: must have equal count per role
+roles: [1, 2, 3, 4, 5]
+
+# Per-role multipliers for balancing weighted team MMR
+role_weights:
+  1: 1.0
+  2: 1.0
+  3: 1.0
+  4: 1.0
+  5: 1.0
+
+# Captain handling ("none" | "at_least_one" | "separate")
+captain_policy: "at_least_one"
+captain_hard: false      # true=enforce as hard constraint (only if feasible)
+captain_weight: 5.0      # penalty when not hard
+
+# Objective weights
+balance_weight: 1.0      # team MMR balance (sum of abs deviations)
+conflict_weight: 1.0     # penalize avoid-pairs placed together
+
+# Pin players to teams (1-based team index)
+presets:
+  # "Player A": 1
+  # "Player B": 3
+
+random_seed: 42
+plot_dpi: 140
+```
+
+> **Feasibility requirements:**
+>
+> * For each role in `roles`, the CSV must contain **exactly `num_teams` players** with that role.
+> * Total players must equal `num_teams * len(roles)`.
+> * Names must be unique.
+> * If `captain_hard: true` is infeasible (e.g., fewer captains than teams for “at\_least\_one”), the solver automatically **softens** it and prints a warning.
+
+---
+
+## What it produces
+
+Inside `./outputs/<run_name>/`:
+
+1. `used_config.yaml` — the exact config used for this run (for reproducibility).
+2. `teams.md` — Markdown roster per team (roles, names, MMR, captain marks + averages).
+3. `assignments.csv` — original CSV plus a `Team` column.
+4. `mmr_bars_per_team.png` — bars of per-player MMR by role for each team.
+5. `avg_role_mmr_by_team.png` — heatmap of role MMR per team.
+6. `team_reports.png` — compact boards with each team’s roster, overall avg, **Core(1–3)** avg, and **Support(4–5)** avg.
 
 ---
 
